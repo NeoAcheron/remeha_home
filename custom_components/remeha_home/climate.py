@@ -26,19 +26,21 @@ _LOGGER = logging.getLogger(__name__)
 REMEHA_MODE_TO_HVAC_MODE = {
     "Scheduling": HVACMode.AUTO,
     "TemporaryOverride": HVACMode.AUTO,
-    "Manual": HVACMode.HEAT,
+    "Manual": HVACMode.HEAT_COOL,
     "FrostProtection": HVACMode.OFF,
 }
 
 HVAC_MODE_TO_REMEHA_MODE = {
     HVACMode.AUTO: "Scheduling",
-    HVACMode.HEAT: "Manual",
+    HVACMode.HEAT_COOL: "Manual",
     HVACMode.OFF: "FrostProtection",
 }
 
 REMEHA_STATUS_TO_HVAC_ACTION = {
     "ProducingHeat": HVACAction.HEATING,
     "RequestingHeat": HVACAction.HEATING,
+    "ProducingCold": HVACAction.COOLING,
+    "RequestingCold": HVACAction.COOLING,
     "Idle": HVACAction.IDLE,
 }
 
@@ -143,8 +145,8 @@ class RemehaHomeClimateEntity(CoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_modes(self) -> list[HVACMode] | list[str]:
-        """Return the list of available operation modes."""
-        return [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        """Return the list of available operation modes."""       
+        return [HVACMode.OFF, HVACMode.HEAT_COOL, HVACMode.AUTO]
 
     @property
     def hvac_action(self) -> HVACAction | str | None:
@@ -160,7 +162,7 @@ class RemehaHomeClimateEntity(CoordinatorEntity, ClimateEntity):
         """Return the preset mode."""
         if self.hvac_mode == HVACMode.OFF:
             return "anti_frost"
-        if self.hvac_mode == HVACMode.HEAT:
+        if self.hvac_mode == HVACMode.HEAT_COOL:
             return "manual"
         return PRESET_INDEX_TO_PRESET_MODE[
             self._data["activeHeatingClimateTimeProgramNumber"]
@@ -175,13 +177,13 @@ class RemehaHomeClimateEntity(CoordinatorEntity, ClimateEntity):
         """Set new target temperature."""
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is not None:
             _LOGGER.debug("Setting temperature to %f", temperature)
-            if self.hvac_mode == HVACMode.AUTO:
+            if self._data["zoneMode"] in ("Scheduling", "TemporaryOverride"):
                 await self.api.async_set_temporary_override(
                     self.climate_zone_id, temperature
                 )
-            elif self.hvac_mode == HVACMode.HEAT:
+            elif self._data["zoneMode"] == "Manual":
                 await self.api.async_set_manual(self.climate_zone_id, temperature)
-            elif self.hvac_mode == HVACMode.OFF:
+            elif self._data["zoneMode"] == "FrostProtection":
                 return
 
             await self.coordinator.async_request_refresh()
@@ -199,7 +201,7 @@ class RemehaHomeClimateEntity(CoordinatorEntity, ClimateEntity):
                 self.climate_zone_id,
                 self._data["activeHeatingClimateTimeProgramNumber"],
             )
-        elif hvac_mode == HVACMode.HEAT:
+        elif hvac_mode == HVACMode.HEAT_COOL:
             await self.api.async_set_manual(
                 self.climate_zone_id, self._data["setPoint"]
             )
